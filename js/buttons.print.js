@@ -36,6 +36,62 @@
 'use strict';
 var DataTable = $.fn.dataTable;
 
+var _fnGetHeaders = function(dt) {
+    var thRows = $(dt.header()[0]).children();
+    var numRows = thRows.length;
+    var matrix = [];
+
+    // Iterate over each row of the header and add information to matrix.
+    for ( var rowIdx = 0;  rowIdx < numRows;  rowIdx++ ) {
+        var $row = $(thRows[rowIdx]);
+
+        // Iterate over actual columns specified in this row.
+        var $ths = $row.children("th");
+        for ( var colIdx = 0;  colIdx < $ths.length;  colIdx++ )
+        {
+            var $th = $($ths.get(colIdx));
+            var colspan = $th.attr("colspan") || 1;
+            var rowspan = $th.attr("rowspan") || 1;
+            var colCount = 0;
+
+            // ----- add this cell's title to the matrix
+            if (matrix[rowIdx] === undefined) {
+                matrix[rowIdx] = [];  // create array for this row
+            }
+            // find 1st empty cell
+            for ( var j = 0;  j < (matrix[rowIdx]).length;  j++, colCount++ ) {
+                if ( matrix[rowIdx][j] === "PLACEHOLDER" ) {
+                    break;
+                }
+            }
+            var myColCount = colCount;
+            matrix[rowIdx][colCount++] = $th.text();
+
+            // ----- If title cell has colspan, add empty titles for extra cell width.
+            for ( var j = 1;  j < colspan;  j++ ) {
+                matrix[rowIdx][colCount++] = "";
+            }
+
+            // ----- If title cell has rowspan, add empty titles for extra cell height.
+            for ( var i = 1;  i < rowspan;  i++ ) {
+                var thisRow = rowIdx+i;
+                if ( matrix[thisRow] === undefined ) {
+                    matrix[thisRow] = [];
+                }
+                // First add placeholder text for any previous columns.                 
+                for ( var j = (matrix[thisRow]).length;  j < myColCount;  j++ ) {
+                    matrix[thisRow][j] = "PLACEHOLDER";
+                }
+                for ( var j = 0;  j < colspan;  j++ ) {  // and empty for my columns
+                    matrix[thisRow][myColCount+j] = "";
+                }
+            }
+        }
+    }
+
+    return matrix;
+};
+
 
 var _link = document.createElement( 'a' );
 
@@ -91,27 +147,12 @@ DataTable.ext.buttons.print = {
 			$.extend( {decodeEntities: false}, config.exportOptions ) // XSS protection
 		);
 		var exportInfo = dt.buttons.exportInfo( config );
-		var columnClasses = dt
-			.columns( config.exportOptions.columns )
-			.flatten()
-			.map( function (idx) {
-				return dt.settings()[0].aoColumns[dt.column(idx).index()].sClass;
-			} )
-			.toArray();
 
 		var addRow = function ( d, tag ) {
 			var str = '<tr>';
 
 			for ( var i=0, ien=d.length ; i<ien ; i++ ) {
-				// null and undefined aren't useful in the print output
-				var dataOut = d[i] === null || d[i] === undefined ?
-					'' :
-					d[i];
-				var classAttr = columnClasses[i] ?
-					'class="'+columnClasses[i]+'"' :
-					'';
-
-				str += '<'+tag+' '+classAttr+'>'+dataOut+'</'+tag+'>';
+				str += '<'+tag+'>'+d[i]+'</'+tag+'>';
 			}
 
 			return str + '</tr>';
@@ -120,8 +161,16 @@ DataTable.ext.buttons.print = {
 		// Construct a table for printing
 		var html = '<table class="'+dt.table().node().className+'">';
 
+		
+
 		if ( config.header ) {
-			html += '<thead>'+ addRow( data.header, 'th' ) +'</thead>';
+			html += '<thead>';
+			var headerMatrix = _fnGetHeaders(dt);
+			for ( var rowIdx = 0;  rowIdx < headerMatrix.length;  rowIdx++ ) {
+				html += addRow( headerMatrix[rowIdx], 'th' );
+			}
+
+			html += '</thead>';
 		}
 
 		html += '<tbody>';
@@ -169,23 +218,16 @@ DataTable.ext.buttons.print = {
 		} );
 
 		if ( config.customize ) {
-			config.customize( win, config, dt );
+			config.customize( win );
 		}
 
 		// Allow stylesheets time to load
-		var autoPrint = function () {
+		setTimeout( function () {
 			if ( config.autoPrint ) {
 				win.print(); // blocking - so close will not
 				win.close(); // execute until this is done
 			}
-		};
-
-		if ( navigator.userAgent.match(/Trident\/\d.\d/) ) { // IE needs to call this without a setTimeout
-			autoPrint();
-		}
-		else {
-			win.setTimeout( autoPrint, 1000 );
-		}
+		}, 1000 );
 	},
 
 	title: '*',

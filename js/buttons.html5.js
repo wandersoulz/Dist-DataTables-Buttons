@@ -48,6 +48,62 @@ function _pdfMake () {
 	return pdfmake || window.pdfMake;
 }
 
+var _fnGetHeaders = function(dt) {
+    var thRows = $(dt.header()[0]).children();
+    var numRows = thRows.length;
+    var matrix = [];
+
+    // Iterate over each row of the header and add information to matrix.
+    for ( var rowIdx = 0;  rowIdx < numRows;  rowIdx++ ) {
+        var $row = $(thRows[rowIdx]);
+
+        // Iterate over actual columns specified in this row.
+        var $ths = $row.children("th");
+        for ( var colIdx = 0;  colIdx < $ths.length;  colIdx++ )
+        {
+            var $th = $($ths.get(colIdx));
+            var colspan = $th.attr("colspan") || 1;
+            var rowspan = $th.attr("rowspan") || 1;
+            var colCount = 0;
+
+            // ----- add this cell's title to the matrix
+            if (matrix[rowIdx] === undefined) {
+                matrix[rowIdx] = [];  // create array for this row
+            }
+            // find 1st empty cell
+            for ( var j = 0;  j < (matrix[rowIdx]).length;  j++, colCount++ ) {
+                if ( matrix[rowIdx][j] === "PLACEHOLDER" ) {
+                    break;
+                }
+            }
+            var myColCount = colCount;
+            matrix[rowIdx][colCount++] = $th.text();
+
+            // ----- If title cell has colspan, add empty titles for extra cell width.
+            for ( var j = 1;  j < colspan;  j++ ) {
+                matrix[rowIdx][colCount++] = "";
+            }
+
+            // ----- If title cell has rowspan, add empty titles for extra cell height.
+            for ( var i = 1;  i < rowspan;  i++ ) {
+                var thisRow = rowIdx+i;
+                if ( matrix[thisRow] === undefined ) {
+                    matrix[thisRow] = [];
+                }
+                // First add placeholder text for any previous columns.                 
+                for ( var j = (matrix[thisRow]).length;  j < myColCount;  j++ ) {
+                    matrix[thisRow][j] = "PLACEHOLDER";
+                }
+                for ( var j = 0;  j < colspan;  j++ ) {  // and empty for my columns
+                    matrix[thisRow][myColCount+j] = "";
+                }
+            }
+        }
+    }
+
+    return matrix;
+};
+
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * FileSaver.js dependency
@@ -422,9 +478,6 @@ function _addToZip( zip, obj ) {
 
 				// Return namespace attributes to being as such
 				str = str.replace( /_dt_b_namespace_token_/g, ':' );
-
-				// Remove testing name space that IE puts into the space preserve attr
-				str = str.replace( /xmlns:NS[\d]+="" NS[\d]+:/g, '' );
 			}
 
 			// Safari, IE and Edge will put empty name space attributes onto
@@ -508,11 +561,11 @@ function _excelColWidth( data, col ) {
 
 		// Max width rather than having potentially massive column widths
 		if ( max > 40 ) {
-			return 54; // 40 * 1.35
+			return 52; // 40 * 1.3
 		}
 	}
 
-	max *= 1.35;
+	max *= 1.3;
 
 	// And a min width
 	return max > 6 ? max : 6;
@@ -816,7 +869,7 @@ DataTable.ext.buttons.copyHtml5 = {
 		}
 
 		if ( config.customize ) {
-			output = config.customize( output, config, dt );
+			output = config.customize( output, config );
 		}
 
 		var textarea = $('<textarea readonly/>')
@@ -928,7 +981,7 @@ DataTable.ext.buttons.csvHtml5 = {
 		var charset = config.charset;
 
 		if ( config.customize ) {
-			output = config.customize( output, config, dt );
+			output = config.customize( output, config );
 		}
 
 		if ( charset !== false ) {
@@ -1044,7 +1097,6 @@ DataTable.ext.buttons.excelHtml5 = {
 					}
 				}
 
-				var originalContent = row[i];
 				row[i] = $.trim( row[i] );
 
 				// Special number formatting options
@@ -1095,9 +1147,9 @@ DataTable.ext.buttons.excelHtml5 = {
 					}
 					else {
 						// String output - replace non standard characters for text output
-						var text = ! originalContent.replace ?
-							originalContent :
-							originalContent.replace(/[\x00-\x09\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '');
+						var text = ! row[i].replace ?
+							row[i] :
+							row[i].replace(/[\x00-\x09\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '');
 
 						cell = _createNode( rels, 'c', {
 							attr: {
@@ -1108,10 +1160,7 @@ DataTable.ext.buttons.excelHtml5 = {
 								row: _createNode( rels, 'is', {
 									children: {
 										row: _createNode( rels, 't', {
-											text: text,
-											attr: {
-												'xml:space': 'preserve'
-											}
+											text: text
 										} )
 									}
 								} )
@@ -1158,10 +1207,16 @@ DataTable.ext.buttons.excelHtml5 = {
 		}
 
 		// Table itself
+		var headerMatrix = _fnGetHeaders(dt);
+		for ( var rowIdx = 0;  rowIdx < headerMatrix.length;  rowIdx++ ) {
+			addRow( headerMatrix[rowIdx], rowPos );
+		}
+		/*
 		if ( config.header ) {
 			addRow( data.header, rowPos );
 			$('row:last c', rels).attr( 's', '2' ); // bold
 		}
+		*/
 
 		for ( var n=0, ie=data.body.length ; n<ie ; n++ ) {
 			addRow( data.body[n], rowPos );
@@ -1195,7 +1250,7 @@ DataTable.ext.buttons.excelHtml5 = {
 
 		// Let the developer customise the document if they want to
 		if ( config.customize ) {
-			config.customize( xlsx, config, dt );
+			config.customize( xlsx );
 		}
 
 		// Excel doesn't like an empty mergeCells tag
@@ -1273,19 +1328,20 @@ DataTable.ext.buttons.pdfHtml5 = {
 		var rows = [];
 
 		if ( config.header ) {
-			rows.push( $.map( data.header, function ( d ) {
-				return {
-					text: typeof d === 'string' ? d : d+'',
-					style: 'tableHeader'
-				};
-			} ) );
+			var headerMatrix = _fnGetHeaders(dt);
+			for (var i = 0; i < headerMatrix.length; i++) {
+				var headerRow = headerMatrix[i];
+				rows.push( $.map( headerRow, function ( d ) {
+					return {
+						text: typeof d === 'string' ? d : d+'',
+						style: 'tableHeader'
+					};
+				} ) );
+			}
 		}
 
 		for ( var i=0, ien=data.body.length ; i<ien ; i++ ) {
 			rows.push( $.map( data.body[i], function ( d ) {
-				if ( d === null || d === undefined ) {
-					d = '';
-				}
 				return {
 					text: typeof d === 'string' ? d : d+'',
 					style: i % 2 ? 'tableBodyEven' : 'tableBodyOdd'
@@ -1368,7 +1424,7 @@ DataTable.ext.buttons.pdfHtml5 = {
 		}
 
 		if ( config.customize ) {
-			config.customize( doc, config, dt );
+			config.customize( doc, config );
 		}
 
 		var pdf = _pdfMake().createPdf( doc );
