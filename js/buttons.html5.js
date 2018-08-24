@@ -350,8 +350,14 @@ var _exportData = function ( dt, config )
 
 		return s;
 	};
+	var header = "";
+	var headerMatrix = _fnGetHeaders(dt);
+	for ( var rowIdx = 0;  rowIdx < headerMatrix.length;  rowIdx++ ) {
+		header += join(headerMatrix[rowIdx]) + newLine;
+	}
+	//var header = config.header ? join( data.header )+newLine : '';
 
-	var header = config.header ? join( data.header )+newLine : '';
+
 	var footer = config.footer && data.footer ? newLine+join( data.footer ) : '';
 	var body = [];
 
